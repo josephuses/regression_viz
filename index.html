@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Least Squares Regression: The Game</title>
+    
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f8; color: #333; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        
+        h1 { margin-bottom: 10px; color: #2c3e50; }
+
+        .container { max-width: 1100px; width: 100%; display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+        
+        /* Context Box */
+        .context-box {
+            grid-column: 1 / -1;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-left: 5px solid #e67e22; /* Orange for regression */
+            margin-bottom: 10px;
+        }
+        .context-title { font-weight: bold; font-size: 1.2em; margin-bottom: 10px; color: #d35400; }
+        
+        /* Controls */
+        .controls { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); height: fit-content; }
+        .control-group { margin-bottom: 25px; }
+        label { display: flex; justify-content: space-between; font-weight: 600; font-size: 0.9em; color: #555; margin-bottom: 5px; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        .val-display { color: #2980b9; font-weight: bold; }
+        
+        /* Score Box */
+        .score-box {
+            background: #2c3e50; color: #fff; padding: 15px; border-radius: 6px; text-align: center; margin-bottom: 20px;
+        }
+        .score-val { font-size: 2em; font-weight: bold; display: block; font-family: monospace; }
+        .score-label { font-size: 0.8em; text-transform: uppercase; opacity: 0.8; }
+        
+        button {
+            width: 100%; padding: 12px; border: none; border-radius: 4px; 
+            font-weight: bold; cursor: pointer; margin-top: 10px; font-size: 1em;
+            background: #27ae60; color: white; transition: background 0.2s;
+        }
+        button:hover { background: #219150; }
+        
+        .best-fit-info { margin-top: 15px; padding: 10px; background: #eafaf1; border-radius: 4px; display: none; font-size: 0.9em; color: #27ae60; border: 1px solid #a9dfbf; }
+
+        /* Visualization Panel */
+        .viz-panel { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 10px; min-height: 500px; position: relative; }
+
+        /* D3 Elements */
+        .axis text { fill: #7f8c8d; font-size: 11px; }
+        .domain, .tick line { stroke: #bdc3c7; }
+        
+        .data-point { fill: #2c3e50; stroke: #fff; stroke-width: 2; }
+        
+        .user-line { stroke: #3498db; stroke-width: 4; stroke-linecap: round; cursor: ns-resize; }
+        .best-fit-line { stroke: #27ae60; stroke-width: 3; stroke-dasharray: 5,5; opacity: 0.7; }
+
+        .residual-square { fill: #e74c3c; opacity: 0.2; stroke: #c0392b; stroke-width: 1; }
+        .residual-line { stroke: #e74c3c; stroke-width: 1; stroke-dasharray: 2,2; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Least Squares Regression Visualizer</h1>
+
+    <div class="container">
+        
+        <div class="context-box">
+            <div class="context-title">Why "Least Squares"?</div>
+            <p>
+                When fitting a line to data, we want to minimize the error. But why do we square the errors?
+                Because squaring penalizes <strong>large outliers</strong> heavily and makes all errors positive.
+            </p>
+            <p>
+                <strong>The Goal:</strong> Adjust the Slope and Intercept to minimize the 
+                <strong>Sum of Squared Errors (SSE)</strong>. That is the total area of all the red squares combined.
+            </p>
+            <div style="font-family: monospace; text-align: center; margin-top: 10px; color: #555;">
+                Minimizing: \( \sum_{i=1}^{n} (y_i - (mx_i + b))^2 \)
+            </div>
+        </div>
+
+        <div class="controls">
+            
+            <div class="score-box">
+                <span class="score-label">Total Area (SSE)</span>
+                <span id="sse_display" class="score-val">0.00</span>
+            </div>
+
+            <div class="control-group">
+                <label>Slope (m) <span id="val_m" class="val-display">1.0</span></label>
+                <input type="range" id="mSlider" min="-2" max="2" step="0.01" value="1">
+            </div>
+
+            <div class="control-group">
+                <label>Y-Intercept (b) <span id="val_b" class="val-display">0</span></label>
+                <input type="range" id="bSlider" min="-20" max="20" step="0.1" value="0">
+            </div>
+
+            <button onclick="toggleBestFit()" id="btnBestFit">Show "Best Fit" Line</button>
+            
+            <div id="bestFitInfo" class="best-fit-info">
+                <strong>Best Fit (OLS):</strong><br>
+                Slope: <span id="opt_m"></span><br>
+                Intercept: <span id="opt_b"></span><br>
+                Min SSE: <span id="opt_sse"></span>
+            </div>
+        </div>
+
+        <div class="viz-panel" id="viz"></div>
+    </div>
+
+<script>
+    // --- Config ---
+    const margin = {top: 20, right: 20, bottom: 40, left: 50};
+    const width = 750 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
+
+    // --- Data Generation ---
+    // Let's create a dataset with a clear positive correlation but some noise
+    const data = [
+        {x: 1, y: 3}, {x: 2, y: 5}, {x: 3, y: 4}, {x: 4, y: 9}, 
+        {x: 5, y: 8}, {x: 6, y: 11}, {x: 7, y: 10}, {x: 8, y: 14},
+        {x: 9, y: 12}, {x: 10, y: 16}
+    ];
+
+    // --- State ---
+    let m = 1;
+    let b = 0;
+    let showBestFit = false;
+
+    // --- Calculate Optimal (OLS) ---
+    // Standard formulas for simple linear regression
+    const n = data.length;
+    const sumX = d3.sum(data, d => d.x);
+    const sumY = d3.sum(data, d => d.y);
+    const sumXY = d3.sum(data, d => d.x * d.y);
+    const sumXX = d3.sum(data, d => d.x * d.x);
+
+    const slopeOpt = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const interceptOpt = (sumY - slopeOpt * sumX) / n;
+    
+    // Calculate Min SSE
+    const minSSE = d3.sum(data, d => Math.pow(d.y - (slopeOpt * d.x + interceptOpt), 2));
+
+    // --- D3 Setup ---
+    const svg = d3.select("#viz").append("svg")
+        .attr("viewBox", `0 0 750 500`)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    // x domain 0 to 11
+    const xSc = d3.scaleLinear().domain([0, 11]).range([0, width]);
+    // y domain 0 to 20
+    const ySc = d3.scaleLinear().domain([0, 20]).range([height, 0]);
+
+    // Axes
+    svg.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(xSc));
+    svg.append("g").call(d3.axisLeft(ySc));
+
+    // --- Groups for layering ---
+    const squaresGroup = svg.append("g").attr("class", "squares-group");
+    const linesGroup = svg.append("g").attr("class", "lines-group");
+    const dotsGroup = svg.append("g").attr("class", "dots-group");
+
+    // Draw Points (Static)
+    dotsGroup.selectAll("circle")
+        .data(data)
+        .enter().append("circle")
+        .attr("class", "data-point")
+        .attr("cx", d => xSc(d.x))
+        .attr("cy", d => ySc(d.y))
+        .attr("r", 6);
+
+    // Lines
+    const userLine = linesGroup.append("line").attr("class", "user-line");
+    const bestFitLine = linesGroup.append("line").attr("class", "best-fit-line").style("opacity", 0); // Hidden initially
+
+    // Set Best Fit Coords (Static)
+    bestFitLine
+        .attr("x1", xSc(0))
+        .attr("y1", ySc(interceptOpt))
+        .attr("x2", xSc(11))
+        .attr("y2", ySc(slopeOpt * 11 + interceptOpt));
+
+    // --- Update Function ---
+    function update() {
+        // Update UI Text
+        document.getElementById('val_m').innerText = m.toFixed(2);
+        document.getElementById('val_b').innerText = b.toFixed(1);
+
+        // Update User Line
+        // y = mx + b
+        // Start point (x=0)
+        const y1 = m * 0 + b;
+        // End point (x=11)
+        const y2 = m * 11 + b;
+
+        userLine
+            .attr("x1", xSc(0))
+            .attr("y1", ySc(y1))
+            .attr("x2", xSc(11))
+            .attr("y2", ySc(y2));
+
+        // Update Squares & Calculate SSE
+        let sse = 0;
+
+        // Bind data for squares
+        const squares = squaresGroup.selectAll(".residual-square")
+            .data(data);
+
+        // Enter + Update
+        squares.join(
+            enter => enter.append("rect").attr("class", "residual-square"),
+            update => update
+        )
+        .attr("x", d => {
+            const predY = m * d.x + b;
+            const resid = d.y - predY;
+            // The square connects the point (d.x, d.y) to the line (d.x, predY)
+            // We need to convert these units to pixels for width/height
+            // But width in pixels must match height in pixels to look like a square visually?
+            // Actually, strictly speaking, "Least Squares" refers to unit squares. 
+            // If axes have different scales, visually it might look rectangular.
+            // For educational intuition, we usually draw visual squares based on the Y-residual.
+            
+            // X position: Depends on if we draw left or right of the line. Let's center it or draw left.
+            // Let's just draw it starting at x.
+            return xSc(d.x);
+        })
+        .attr("y", d => {
+            const predY = m * d.x + b;
+            // Draw from Min(y, predY)
+            const topY = Math.max(d.y, predY);
+            return ySc(topY);
+        })
+        .attr("width", d => {
+            const predY = m * d.x + b;
+            const resid = Math.abs(d.y - predY);
+            // Convert residual magnitude to pixels
+            // This is tricky if X and Y scales are different. 
+            // To make it look like a square, we use pixel magnitude.
+            const pixelHeight = Math.abs(ySc(d.y) - ySc(predY));
+            return pixelHeight; 
+        })
+        .attr("height", d => {
+            const predY = m * d.x + b;
+            // Pixel height
+            return Math.abs(ySc(d.y) - ySc(predY));
+        })
+        .style("fill", d => {
+            // Color feedback?
+            // Let's just stick to red.
+            return "#e74c3c";
+        });
+
+        // Residual Lines (Connecting point to square/line) - Optional, but clarifies connectivity
+        // (Skipped for cleaner UI, the square connects them well enough)
+
+        // Calculate actual SSE
+        data.forEach(d => {
+            const predY = m * d.x + b;
+            sse += Math.pow(d.y - predY, 2);
+        });
+
+        // Update Score
+        document.getElementById('sse_display').innerText = sse.toFixed(2);
+        
+        // Color code score
+        // If within 5% of minSSE, turn Green
+        const diff = Math.abs(sse - minSSE);
+        const scoreBox = document.querySelector('.score-box');
+        
+        if (diff < 5) {
+            scoreBox.style.background = "#27ae60"; // Winner Green
+        } else {
+            scoreBox.style.background = "#2c3e50"; // Standard Dark Blue
+        }
+    }
+
+    // --- Interaction ---
+    function toggleBestFit() {
+        showBestFit = !showBestFit;
+        const btn = document.getElementById('btnBestFit');
+        const info = document.getElementById('bestFitInfo');
+        
+        if (showBestFit) {
+            d3.select(".best-fit-line").transition().style("opacity", 1);
+            btn.innerText = "Hide Best Fit";
+            btn.style.background = "#7f8c8d";
+            info.style.display = "block";
+            
+            // Fill info
+            document.getElementById('opt_m').innerText = slopeOpt.toFixed(2);
+            document.getElementById('opt_b').innerText = interceptOpt.toFixed(2);
+            document.getElementById('opt_sse').innerText = minSSE.toFixed(2);
+        } else {
+            d3.select(".best-fit-line").transition().style("opacity", 0);
+            btn.innerText = "Show \"Best Fit\" Line";
+            btn.style.background = "#27ae60";
+            info.style.display = "none";
+        }
+    }
+
+    // Listeners
+    document.getElementById('mSlider').addEventListener('input', (e) => { m = parseFloat(e.target.value); update(); });
+    document.getElementById('bSlider').addEventListener('input', (e) => { b = parseFloat(e.target.value); update(); });
+
+    // Init
+    update();
+
+</script>
+
+</body>
+</html>
